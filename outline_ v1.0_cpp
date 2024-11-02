@@ -1,0 +1,111 @@
+//Outline v1.0 31 October 2024
+#include <Eigen/Dense> // for Kalman filter
+#include <fftw3.h> // FFT for frequency analysis
+#include <boost/circular_buffer.hpp> // ring buffer for memory management
+#include <cmath> // math functions
+#include <armadillo> // RLS filtering
+#define LED_450_PIN 9 // 450 led pin
+#define LED_510_PIN 10 // 510 led pin
+#define PHOTODIODE_PIN A0 // Photodiode pin
+#define PPG_PIN A1 // PPG sensor input
+//ring buffers for incoming signals
+boost::circular_buffer<double> buffer_450nm(256);
+boost::circular_buffer<double> buffer_510nm(256);
+boost::circular_buffer<double> ppgBuffer(256);
+
+struct SignalData { // struct for signal data
+    double wavelength450;
+    double wavelength510;
+    double ppg;
+};
+
+struct EKFState { //struct for Kalman filter states
+    Eigen::VectorXd state;
+    Eigen::MatrixXd covariance;
+};
+
+EKFState ekfState; // initialize EKF and RLS filter
+arma::vec rlsCoefficients; // RLS coefficients for adaptive filtering
+double forgettingFactor = 0.99; // ff for RLS filter
+
+void setupHardware() {
+    pinMode(LED_450_PIN, OUTPUT);
+    pinMode(LED_510_PIN, OUTPUT);
+    pinMode(PHOTODIODE_PIN, INPUT);
+    pinMode(PPG_PIN, INPUT);
+    Serial.begin(115200);
+}
+
+double readSignal(int pin) {
+    return analogRead(pin); // read analog signal
+}
+
+void initializeEKF() { // extended Kalman Filter (EKF) for non-linear estimation
+    ekfState.state = Eigen::VectorXd::Zero(2); // 2-state vector
+    ekfState.covariance = Eigen::MatrixXd::Identity(2, 2);
+}
+
+void ekfUpdate(double measurement, double deltaT) {
+    Eigen::MatrixXd F(2, 2); //state transition matrix
+    F << 1, deltaT, 0, 1;
+    Eigen::MatrixXd H(1, 2); //measurement matrix
+    H << 1, 0;
+    Eigen::MatrixXd Q = Eigen::MatrixXd::Identity(2, 2) * 0.01; // Process noise
+    Eigen::MatrixXd R(1, 1);
+    R << 0.1; // Measurement noise
+    // predict
+    ekfState.state = F * ekfState.state;
+    ekfState.covariance = F * ekfState.covariance * F.transpose() + Q;
+    // update
+    Eigen::VectorXd z(1);
+    z << measurement;
+    Eigen::MatrixXd K = ekfState.covariance * H.transpose() * 
+                        (H * ekfState.covariance * H.transpose() + R).inverse();
+    ekfState.state += K * (z - H * ekfState.state);
+    ekfState.covariance = (Eigen::MatrixXd::Identity(2, 2) - K * H) * ekfState.covariance;
+}
+
+// Recursive Least Squares (RLS) for adaptive filtering
+double rlsFilter(double input, double desired) {
+    static arma::vec inputHistory(2, arma::fill::zeros);
+    static arma::mat P = arma::eye<arma::mat>(2, 2) / forgettingFactor;
+    inputHistory(1) = inputHistory(0); // update input history
+    inputHistory(0) = input;
+    double output = arma::dot(inputHistory, rlsCoefficients);  // calculate output
+    arma::vec error = arma::vec({desired - output});
+    arma::vec k = (P * inputHistory) / (forgettingFactor + arma::dot(inputHistory, P * inputHistory)); // Update RLS filter coefficients
+    rlsCoefficients += k * error;
+    P = (P - k * inputHistory.t() * P) / forgettingFactor;
+
+    return output;
+}
+
+void performDWT(boost::circular_buffer<double>& buffer) { // Discrete Wavelet Transform (DWT) for frequency band decomposition
+    int size = buffer.size();
+    double *signal = new double[size];
+    for (int i = 0; i < size; i++) {
+        signal[i] = buffer[i];
+    }
+    // Implement wavelet transform
+    delete[] signal;
+}
+
+void loop() { // main loop for data acquisition and filtering
+    SignalData signalData;  
+    signalData.wavelength450 = readSignal(LED_450_PIN); // 1. Collect wavelength signals
+    buffer_450nm.push_back(signalData.wavelength450);
+    signalData.wavelength510 = readSignal(LED_510_PIN);
+    buffer_510nm.push_back(signalData.wavelength510);
+    signalData.differential = signalData.wavelength450 - signalData.wavelength510;  // 2. Differential measurement
+    signalData.ppg = readSignal(PPG_PIN);  // 3. PPG signal filtering
+    ppgBuffer.push_back(signalData.ppg);
+    performDWT(ppgBuffer);  // decompose PPG into frequency bands
+    ekfUpdate(signalData.differential, 0.01); // apply EKF for enhanced measurement
+    double filteredPPG = rlsFilter(signalData.ppg, signalData.differential);  //apply RLS filtering
+
+    // logging or further processing?
+    Serial.print("450nm: "); Serial.print(signalData.wavelength450);
+    Serial.print(" 510nm: "); Serial.print(signalData.wavelength510);
+    Serial.print(" Differential: "); Serial.print(signalData.differential);
+    Serial.print(" Filtered PPG: "); Serial.println(filteredPPG);
+}
