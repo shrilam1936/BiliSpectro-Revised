@@ -1,0 +1,35 @@
+#Outline v1.0 1 November 2024
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import make_pipeline
+from sklearn.model_selection import train_test_split
+import joblib
+import tensorflow as tf
+import tensorflow_model_optimization as tfmot
+
+# load collected data
+data = np.loadtxt('data_log.csv', delimiter=',')
+X, y = data[:, :-1], data[:, -1]
+# train model
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+pipeline = make_pipeline(StandardScaler(), RandomForestClassifier(n_estimators=100))
+pipeline.fit(X_train, y_train)
+# save model for C++ integration
+joblib.dump(pipeline, "random_forest_model.pkl")
+
+model = tf.keras.Sequential([ # quantize model using TensorFlow (for C++ deployment)
+    tf.keras.layers.Dense(32, activation='relu', input_shape=(X_train.shape[1],)),
+    tf.keras.layers.Dense(16, activation='relu'),
+    tf.keras.layers.Dense(1, activation='sigmoid')
+])
+
+model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+model.fit(X_train, y_train, epochs=5)
+
+# quantization
+quantize_model = tfmot.quantization.keras.quantize_model(model)
+quantize_model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+quantize_model.fit(X_train, y_train, epochs=5)
+quantize_model.save("quantized_model.tflite") # save quantized model
