@@ -13,6 +13,40 @@ boost::circular_buffer<double> buffer_450nm(256);
 boost::circular_buffer<double> buffer_510nm(256);
 boost::circular_buffer<double> ppgBuffer(256);
 
+/*
+[ESP32-WROOM-32U]
+     | | |
+   3.3V GND GPIO Pins
+     | | |
+     | | |
+   ----- ----- -----
+  |LED 1| |LED 2| |Photodiode|
+  |(450nm)| |(510nm)| | (Anode) |
+   ----- ----- -----
+     | | |
+     | | |
+    GND GND GND
+     | | |
+  ----- ----- -----
+ | Resistor | Resistor | PPG Sensor
+ | (220Ω) | (220Ω) | (MAX30100)
+  ----- ----- -----
+     | | |
+     | | |
+    GND GND GND
+     | |
+    ----- -----
+   | Capacitor |
+   | (1µF) |
+    -----
+     |
+    GND
+     |
+   [Battery]
+     |
+    GND
+*/
+
 struct SignalData { // struct for signal data
     double wavelength450;
     double wavelength510;
