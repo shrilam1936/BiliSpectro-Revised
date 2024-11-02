@@ -47,6 +47,7 @@ boost::circular_buffer<double> ppgBuffer(256);
     GND
 */
 
+
 struct SignalData { // struct for signal data
     double wavelength450;
     double wavelength510;
@@ -124,20 +125,22 @@ void performDWT(boost::circular_buffer<double>& buffer) { // Discrete Wavelet Tr
     delete[] signal;
 }
 
-void loop() { // main loop for data acquisition and filtering
+void loop() { // main loop for data acq and filtering
     SignalData signalData;  
     signalData.wavelength450 = readSignal(LED_450_PIN); // 1. Collect wavelength signals
     buffer_450nm.push_back(signalData.wavelength450);
     signalData.wavelength510 = readSignal(LED_510_PIN);
     buffer_510nm.push_back(signalData.wavelength510);
+
     signalData.differential = signalData.wavelength450 - signalData.wavelength510;  // 2. Differential measurement
+
     signalData.ppg = readSignal(PPG_PIN);  // 3. PPG signal filtering
     ppgBuffer.push_back(signalData.ppg);
     performDWT(ppgBuffer);  // decompose PPG into frequency bands
-    ekfUpdate(signalData.differential, 0.01); // apply EKF for enhanced measurement
+    ekfUpdate(signalData.differential, 0.01); // apply EKF
     double filteredPPG = rlsFilter(signalData.ppg, signalData.differential);  //apply RLS filtering
 
-    // logging or further processing?
+    // logging  or processing (further)
     Serial.print("450nm: "); Serial.print(signalData.wavelength450);
     Serial.print(" 510nm: "); Serial.print(signalData.wavelength510);
     Serial.print(" Differential: "); Serial.print(signalData.differential);
