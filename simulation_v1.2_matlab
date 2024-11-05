@@ -1,0 +1,90 @@
+% constants
+molarAbsorptivity = struct('B_450', 40000, 'B_510', 1000, ...
+                           'HBO2_450', 50000, 'HBO2_510', 20000, ...
+                           'HB_450', 30000, 'HB_510', 10000);
+BilirubinConcentration = linspace(0, 20, 100); % mg/dL
+HbConcentration = linspace(12, 17, 100); % g/dL
+OxygenationLevels = linspace(0, 1, 100); % 0 to 100% oxygenation
+MelaninLevels = linspace(0.1, 1.0, 100);
+TissueThickness = linspace(0.5, 3.0, 100); % mm
+AnisotropyFactors = linspace(0.8, 0.95, 100); %for Henyey-Greenstein
+
+% Monte-Carlo simulation parameters
+PhotonCount = 1e6; % placeholder
+ScatteringEvents = 5; % Multiple scattering events
+SpectralBandwidth450 = [445, 455]; % nm for 450 nm +/- 5
+SpectralBandwidth510 = [505, 515]; % nm for 510 nm +/- 5
+IncidentAngles = linspace(0, 15, 50); % Degrees - placeholder for light source angle and fluctuation variation
+SensorNoiseLevel = 0.10; % placeholder for sensor-specific noise characteristics
+ShotNoise = @(signal) signal + sqrt(signal) * randn(size(signal)) * SensorNoiseLevel;
+ThermalNoise = @(signal) signal + randn(size(signal)) * SensorNoiseLevel;
+
+optimizeSNR = @(signal, noise) signal ./ (noise + SensorNoiseLevel); %placeholder
+henyeyGreenstein = @(cosTheta, g) (1 - g^2) / (4 * pi * (1 + g^2 - 2 * g * cosTheta)^(3/2));
+
+function mieParams = initializeMieTheory(sizeParameter, refractiveIndex)
+    mieParams = struct();
+    mieParams.sizeParameter = sizeParameter;
+    mieParams.refractiveIndex = refractiveIndex;
+    %...
+end
+
+% i stopped here
+
+function photonPaths = scatter(photonCount, anisotropy, mieParams, layerProperties)
+    photonPaths = zeros(photonCount, 3); % placeholder
+    for i = 1:photonCount %this is a loop!
+        cosTheta = 2 * rand - 1; % Random scattering angle
+        scatteringAngle = acos(cosTheta);
+        hgPhase = henyeyGreenstein(cosTheta, anisotropy);
+        % update photon position
+        % adjust path length and scattering angle
+    end
+end
+
+% tissue heterogeneity simulation (placeholder)
+function tissueLayers = simulateTissueLayers(bloodDensity, vascularization)
+    tissueLayers = struct('epidermis', [], 'dermis', [], 'subcutaneous', []);
+    % assign optical properties based on blood density and vascularization
+    tissueLayers.epidermis.absorption = rand * bloodDensity;
+    tissueLayers.dermis.scattering = rand * vascularization;
+    % extend for multiple layers
+end
+
+function signalWithDrift = addBaselineNoise(signal, driftRate) % baseline noise and drift simulation
+    drift = driftRate * linspace(0, 1, length(signal));
+    signalWithDrift = signal + drift;
+end
+
+function ppgSignal = simulatePPG(pulseRate, duration, photonIntensity)
+    time = linspace(0, duration, duration * 100); % Sampling frequency
+    ppgSignal = photonIntensity * (1 + 0.1 * sin(2 * pi * pulseRate * time));
+end
+
+function fluctuatedSignal = applySpectralBandwidth(signal, wavelengthRange) % spectral bandwidth fluctuation modeling
+    % Randomly sample within the bandwidth range for spectral fluctuation
+    fluctuatedSignal = signal .* (1 + 0.05 * randn(size(signal))); % Adjust magnitude
+end
+
+% main simulation loop
+for i = 1:length(BilirubinConcentration)
+    for j = 1:length(OxygenationLevels)
+        mieParams = initializeMieTheory(0.1, 1.33); % placeholders
+        tissueLayers = simulateTissueLayers(0.3, 0.4); % placeholders
+        % Mie and Monte Carlo scattering
+        photonPaths = scatter(PhotonCount, AnisotropyFactors(randi(100)), mieParams, tissueLayers);
+        signal = photonPaths(:, 3); % placeholder, assuming Z-component
+        signalWithNoise = ShotNoise(ThermalNoise(signal));
+        signalWithFluctuation = applySpectralBandwidth(signalWithNoise, SpectralBandwidth450)
+        signalFinal = addBaselineNoise(signalWithFluctuation, 0.01); % Adjust drift rate
+        ppgSignal = simulatePPG(1.2, 10, signalFinal); % 1.2 Hz for pulse rate
+        snr = optimizeSNR(ppgSignal, SensorNoiseLevel);
+        % placeholder for machine learning integration with TensorFlow
+        % process signal for training and feeding
+        % intermediate results for analysis
+        plot(ppgSignal); hold on;
+        title('PPG Signal with Noise and Fluctuation')
+        xlabel('Time')
+        ylabel('Signal Intensity')
+    end
+end
