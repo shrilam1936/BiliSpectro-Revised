@@ -19,7 +19,7 @@ SensorNoiseLevel = 0.05; % placeholder
 
 ShotNoise = @(signal) signal + sqrt(abs(signal)) .* randn(size(signal)) * SensorNoiseLevel;
 ThermalNoise = @(signal) signal + randn(size(signal)) * SensorNoiseLevel;
-henyeyGreenstein = @(cosTheta, g) (1 - g^2) ./ (4 * pi * (1 + g^2 - 2 * g * cosTheta).^(3/2));
+henyeyGreenstein = @(cosTheta, g) (1 - g^2) ./ (4 * pi * (1 + g^2 - 2 * g * cosTheta).^(3/2)); %goes in a separate file
 
 function mieParams = initializeMieTheory(sizeParameter, refractiveIndex) %initialize Mie parameters
     mieParams = struct('sizeParameter', sizeParameter, 'refractiveIndex', refractiveIndex);
