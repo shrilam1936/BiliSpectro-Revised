@@ -1,0 +1,81 @@
+% Constants
+molarAbsorptivity = struct('B_450', 40000, 'B_510', 1000, ...
+                           'HBO2_450', 50000, 'HBO2_510', 20000, ...
+                           'HB_450', 30000, 'HB_510', 10000); % a struct is like an array in java or a list in python
+BilirubinConcentration = linspace(0, 20, 100); % mg/dL
+HbConcentration = linspace(12, 17, 100); % g/dL
+OxygenationLevels = linspace(0, 1, 100); % 0 to 100% oxygenation
+MelaninLevels = linspace(0.1, 1.0, 100); % placeholders
+TissueThickness = linspace(0.5, 3.0, 100) * 1e-3; 
+AnisotropyFactors = linspace(0.8, 0.95, 100); % for Henyey-Greenstein
+
+% Monte Carlo simulation parameters
+PhotonCount = 1e6; % placeholder
+ScatteringEvents = 5; % placeholder
+SpectralBandwidth450 = [445, 455]; % nm for 450 nm +/- 5
+SpectralBandwidth510 = [505, 515]; % nm for 510 nm +/- 5
+IncidentAngles = linspace(0, 15, 50); % degrees - placeholder for light source angle and fluctuation variation
+SensorNoiseLevel = 0.05; % placeholder
+
+ShotNoise = @(signal) signal + sqrt(abs(signal)) .* randn(size(signal)) * SensorNoiseLevel;
+ThermalNoise = @(signal) signal + randn(size(signal)) * SensorNoiseLevel;
+henyeyGreenstein = @(cosTheta, g) (1 - g^2) ./ (4 * pi * (1 + g^2 - 2 * g * cosTheta).^(3/2));
+
+function mieParams = initializeMieTheory(sizeParameter, refractiveIndex) %initialize Mie parameters
+    mieParams = struct('sizeParameter', sizeParameter, 'refractiveIndex', refractiveIndex);
+end
+
+function photonPaths = scatterPhotons(photonCount, anisotropy, mieParams, layerProperties) % simulate photon scattering paths
+    photonPaths = zeros(photonCount, 3); % placeholder
+    for i = 1:photonCount % this is a loop!
+        cosTheta = 2 * rand - 1; % Random scattering angle
+        hgPhase = henyeyGreenstein(cosTheta, anisotropy);
+        % update photon position based on HG phase function
+        % adjust path length and scattering angle
+    end
+end
+
+function tissueLayers = simulateTissueLayers(bloodDensity, vascularization) % placeholder for tissue layer simulation
+    tissueLayers = struct('epidermis', [], 'dermis', [], 'subcutaneous', []);
+    % add properties
+    tissueLayers.epidermis.absorption = bloodDensity * 0.05; % placeholder - example scaling
+    tissueLayers.dermis.scattering = vascularization * 0.1; % placeholder - example scaling
+    tissueLayers.subcutaneous.absorption = bloodDensity * 0.02;
+    % expand
+end
+
+function signalWithDrift = addBaselineNoise(signal, driftRate) % baseline noise addition with drift
+    drift = driftRate * linspace(0, 1, length(signal));
+    signalWithDrift = signal + drift;
+end
+
+function ppgSignal = simulatePPG(pulseRate, duration, photonIntensity)
+    time = linspace(0, duration, duration * 100); % 100 Hz sampling rate
+    ppgSignal = photonIntensity * (1 + 0.1 * sin(2 * pi * pulseRate * time));
+end
+
+function fluctuatedSignal = applySpectralBandwidth(signal, wavelengthRange) % spectral bandwidth fluctuation function
+    fluctuatedSignal = signal .* (1 + 0.05 * randn(size(signal))); % placeholder
+end
+
+% main simulation loop
+for i = 1:length(BilirubinConcentration)
+    for j = 1:length(OxygenationLevels) % this is a nested loop!
+        mieParams = initializeMieTheory(0.1, 1.33); % placeholders
+        tissueLayers = simulateTissueLayers(0.3, 0.4); % placeholders
+        % Mie and Monte Carlo scattering
+        photonPaths = scatterPhotons(PhotonCount, AnisotropyFactors(randi(100)), mieParams, tissueLayers);
+        signal = photonPaths(:, 3); % placeholder, assuming Z-component
+        signalWithNoise = ShotNoise(ThermalNoise(signal));
+        signalWithFluctuation = applySpectralBandwidth(signalWithNoise, SpectralBandwidth450);
+        signalFinal = addBaselineNoise(signalWithFluctuation, 0.01); % adjust drift rate
+        ppgSignal = simulatePPG(1.2, 10, signalFinal); % 1.2 Hz for pulse rate
+        % Placeholder for SNR optimization
+        snr = sum(ppgSignal.^2) / var(ppgSignal); % SNR calc
+        % Placeholder for TensorFlow integration
+        %plot(ppgSignal); hold on;
+        %title('PPG Signal with Noise and Fluctuation')
+        %xlabel('Time')
+        %ylabel('Signal Intensity')
+    end
+end
