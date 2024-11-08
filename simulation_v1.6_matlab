@@ -4,78 +4,139 @@ molarAbsorptivity = struct('B_450', 40000, 'B_510', 1000, ...
                            'HB_450', 30000, 'HB_510', 10000); % a struct is like an array in java or a list in python
 BilirubinConcentration = linspace(0, 20, 100); % mg/dL
 HbConcentration = linspace(12, 17, 100); % g/dL
-OxygenationLevels = linspace(0, 1, 100); % 0 to 100% oxygenation
-MelaninLevels = linspace(0.1, 1.0, 100); % placeholders
+OxygenationLevels = linspace(0, 1, 100); % Fractional oxygenation from 0 to 1
+MelaninLevels = linspace(0.1, 1.0, 100); % Melanin concentration fraction, a
 TissueThickness = linspace(0.5, 3.0, 100) * 1e-3; 
-AnisotropyFactors = linspace(0.8, 0.95, 100); % for Henyey-Greenstein
+AnisotropyFactors = struct('epidermis', 0.85, 'dermis', 0.92, 'subcutaneous', 0.90); % for Henyey-Greenstein
 
 % Monte Carlo simulation parameters
-PhotonCount = 1e6; % placeholder
-ScatteringEvents = 5; % placeholder
-SpectralBandwidth450 = [445, 455]; % nm for 450 nm +/- 5
-SpectralBandwidth510 = [505, 515]; % nm for 510 nm +/- 5
-IncidentAngles = linspace(0, 15, 50); % degrees - placeholder for light source angle and fluctuation variation
-SensorNoiseLevel = 0.05; % placeholder
+PhotonCount = 1e6; 
+ScatteringEvents = 5;
+SpectralBandwidth450 = [445, 455]; % bandwidth for bilirubin measurement +/- 5
+SpectralBandwidth510 = [505, 515]; % bandwidth for secondary measurement +/- 5
+IncidentAngles = linspace(0, 15, 50); % Range of incident angles in degrees
+SensorNoiseLevel = 0.05;
 
+% Noise functions
 ShotNoise = @(signal) signal + sqrt(abs(signal)) .* randn(size(signal)) * SensorNoiseLevel;
 ThermalNoise = @(signal) signal + randn(size(signal)) * SensorNoiseLevel;
-henyeyGreenstein = @(cosTheta, g) (1 - g^2) ./ (4 * pi * (1 + g^2 - 2 * g * cosTheta).^(3/2)); %goes in a separate file
+DarkCurrentNoise = @(signal) signal + 0.001 * randn(size(signal)); % microamperes
+QuantizationNoise = @(signal) round(signal * 2^10) / 2^10; % 10-bit quantization 
 
-function mieParams = initializeMieTheory(sizeParameter, refractiveIndex) %initialize Mie parameters
+function mieParams = initializeMieTheory(sizeParameter, refractiveIndex)
     mieParams = struct('sizeParameter', sizeParameter, 'refractiveIndex', refractiveIndex);
 end
 
-function photonPaths = scatterPhotons(photonCount, anisotropy, mieParams, layerProperties) % simulate photon scattering paths
-    photonPaths = zeros(photonCount, 3); % placeholder
-    for i = 1:photonCount % this is a loop!
-        cosTheta = 2 * rand - 1; % Random scattering angle
-        hgPhase = henyeyGreenstein(cosTheta, anisotropy);
-        % update photon position based on HG phase function
-        % adjust path length and scattering angle
+% i stopped here!!
+
+function photonPaths = scatterPhotons(photonCount, anisotropy, mieParams, layerProperties)
+    % Initialize photon paths
+    photonPaths = zeros(photonCount, 3); % Storing (x, y, z) positions
+
+    % Loop through each photon
+    for i = 1:photonCount
+        % initialize photon position and direction
+        photonPos = [0, 0, 0]; % start at origin
+        photonDir = [0, 0, 1]; % initial direction along z-axis
+
+        % scattering and absorption parameters
+        scatteringCoeff = layerProperties.scattering;
+        absorptionCoeff = layerProperties.absorption;
+        meanFreePath = 1 / (scatteringCoeff + absorptionCoeff);
+
+        % photon path simulation until absorption or exit
+        for event = 1:ScatteringEvents
+            % Step 1: Calculate photon step length using mean free path
+            stepLength = -meanFreePath * log(rand);
+            % Step 2: Update photon position
+            photonPos = photonPos + stepLength * photonDir;
+            % Step 3: Determine scattering angle based on HG phase function
+            cosTheta = 1 / (2 * anisotropy) * (1 + anisotropy^2 - ((1 - anisotropy^2) / (1 - anisotropy + 2 * anisotropy * rand))^2);
+            sinTheta = sqrt(1 - cosTheta^2);
+            % generate azimuthal angle
+            phi = 2 * pi * rand;
+            cosPhi = cos(phi);
+            sinPhi = sin(phi);
+            % update photon direction using spherical coordinates
+            newDirX = sinTheta * cosPhi;
+            newDirY = sinTheta * sinPhi;
+            newDirZ = cosTheta;
+            % rotate new direction based on current direction
+            [photonDir(1), photonDir(2), photonDir(3)] = rotateDirection(photonDir, [newDirX, newDirY, newDirZ]);
+            % absorption check: if absorbed, stop tracking this photon
+            if rand < absorptionCoeff / (scatteringCoeff + absorptionCoeff)
+                break;
+            end
+        end
+        photonPaths(i, :) = photonPos;
     end
 end
 
-function tissueLayers = simulateTissueLayers(bloodDensity, vascularization) % placeholder for tissue layer simulation
-    tissueLayers = struct('epidermis', [], 'dermis', [], 'subcutaneous', []);
-    % add properties
-    tissueLayers.epidermis.absorption = bloodDensity * 0.05; % placeholder - example scaling
-    tissueLayers.dermis.scattering = vascularization * 0.1; % placeholder - example scaling
-    tissueLayers.subcutaneous.absorption = bloodDensity * 0.02;
-    % expand
+function [x, y, z] = rotateDirection(dir, newDir)
+    % rotation to adjust scattering direction based on initial orientation
+    theta = acos(dir(3)); % angle between initial direction and z-axis
+    phi = atan2(dir(2), dir(1)); % Azimuthal angle of initial direction
+
+    % apply rotation to align newDir with current photon direction
+    rotationMatrix = [cos(theta) * cos(phi), -sin(phi), sin(theta) * cos(phi);
+                      cos(theta) * sin(phi), cos(phi), sin(theta) * sin(phi);
+                      -sin(theta), 0, cos(theta)];
+    rotatedDir = rotationMatrix * newDir';
+    x = rotatedDir(1);
+    y = rotatedDir(2);
+    z = rotatedDir(3);
 end
 
-function signalWithDrift = addBaselineNoise(signal, driftRate) % baseline noise addition with drift
+function tissueLayers = simulateTissueLayers(bloodDensity, vascularization)
+    tissueLayers = struct('epidermis', [], 'dermis', [], 'subcutaneous', []);
+    tissueLayers.epidermis.absorption = bloodDensity * 0.05;
+    tissueLayers.dermis.scattering = vascularization * 0.1;
+    tissueLayers.subcutaneous.absorption = bloodDensity * 0.02;
+end
+
+function signalWithDrift = addBaselineNoise(signal, driftRate) % adds a linear baseline drift to simulate sensor drift over time
     drift = driftRate * linspace(0, 1, length(signal));
     signalWithDrift = signal + drift;
 end
 
+% Gaussian function for simulating pulse variability and motion artifacts
 function ppgSignal = simulatePPG(pulseRate, duration, photonIntensity)
-    time = linspace(0, duration, duration * 100); % 100 Hz sampling rate
-    ppgSignal = photonIntensity * (1 + 0.1 * sin(2 * pi * pulseRate * time));
+    time = linspace(0, duration, duration * 100); % Sample rate of 100 Hz
+    heartRateGaussianProcess = @(t) 1 + 0.1 * randn(size(t)) .* exp(-0.5 * (t - mean(t)).^2 / 0.2^2);
+    motionArtifact = 0.02 * sin(2 * pi * 0.5 * time); % simulated motion artifact at 0.5 Hz
+
+    ppgSignal = photonIntensity * (1 + 0.1 * sin(2 * pi * pulseRate * time) + ...
+                 heartRateGaussianProcess(time) + motionArtifact);
 end
 
-function fluctuatedSignal = applySpectralBandwidth(signal, wavelengthRange) % spectral bandwidth fluctuation function
-    fluctuatedSignal = signal .* (1 + 0.05 * randn(size(signal))); % placeholder
+function fluctuatedSignal = applySpectralBandwidth(signal, wavelengthRange)
+    % Applies Gaussian noise to simulate variation within the spectral bandwidth
+    fluctuatedSignal = signal .* (1 + 0.05 * randn(size(signal)));
 end
 
-% main simulation loop
+% Main simulation loop
 for i = 1:length(BilirubinConcentration)
     for j = 1:length(OxygenationLevels) % this is a nested loop!
-        mieParams = initializeMieTheory(0.1, 1.33); % placeholders
-        tissueLayers = simulateTissueLayers(0.3, 0.4); % placeholders
-        % Mie and Monte Carlo scattering
-        photonPaths = scatterPhotons(PhotonCount, AnisotropyFactors(randi(100)), mieParams, tissueLayers);
-        signal = photonPaths(:, 3); % placeholder, assuming Z-component
-        signalWithNoise = ShotNoise(ThermalNoise(signal));
-        signalWithFluctuation = applySpectralBandwidth(signalWithNoise, SpectralBandwidth450);
-        signalFinal = addBaselineNoise(signalWithFluctuation, 0.01); % adjust drift rate
-        ppgSignal = simulatePPG(1.2, 10, signalFinal); % 1.2 Hz for pulse rate
-        % Placeholder for SNR optimization
-        snr = sum(ppgSignal.^2) / var(ppgSignal); % SNR calc
-        % Placeholder for TensorFlow integration
-        %plot(ppgSignal); hold on;
-        %title('PPG Signal with Noise and Fluctuation')
-        %xlabel('Time')
-        %ylabel('Signal Intensity')
+        mieParams = initializeMieTheory(0.1, 1.33); % refractive index close to water/tissue
+        tissueLayers = simulateTissueLayers(0.3, 0.4);
+     
+        if rand < 0.5
+            anisotropy = AnisotropyFactors.epidermis;
+        else
+            anisotropy = AnisotropyFactors.dermis;
+        end
+    
+        photonPaths = scatterPhotons(PhotonCount, anisotropy, mieParams, tissueLayers);
+        signal = photonPaths(:, 3);
+        % apply noise with dark current and quantization noise
+        signalWithNoise = ShotNoise(ThermalNoise(DarkCurrentNoise(signal)));
+        signalWithQuantization = QuantizationNoise(signalWithNoise);
+        signalWithFluctuation = applySpectralBandwidth(signalWithQuantization, SpectralBandwidth450);
+        signalFinal = addBaselineNoise(signalWithFluctuation, 0.01);
+
+        ppgSignal = simulatePPG(1.2, 10, signalFinal); % 1.2 Hz ~72 bpm
+        
+        % placeholder for SNR optimization calculation
+        snr = sum(ppgSignal.^2) / var(ppgSignal); % signal-to-noise ratio estimation
     end
 end
