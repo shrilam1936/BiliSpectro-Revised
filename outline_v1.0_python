@@ -1,35 +1,31 @@
-#Outline v1.0 1 November 2024
-import numpy as np
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.svm import SVC
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import make_pipeline
-from sklearn.model_selection import train_test_split
-import joblib
 import tensorflow as tf
-import tensorflow_model_optimization as tfmot
+import numpy as np
+# Load and preprocess data (CSV)
+import pandas as pd
+data = pd.read_csv('photonData.csv')
+features = data[['Wavelength', 'PathLength', 'Intensity']].values
+labels = data['AbsorbedLayer'].astype('category').cat.codes.values # convert layer to categorical integer
 
-# load collected data
-data = np.loadtxt('data_log.csv', delimiter=',')
-X, y = data[:, :-1], data[:, -1]
-# train model
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-pipeline = make_pipeline(StandardScaler(), RandomForestClassifier(n_estimators=100))
-pipeline.fit(X_train, y_train)
-# save model for C++ integration
-joblib.dump(pipeline, "random_forest_model.pkl")
+# split data into training and validation sets
+from sklearn.model_selection import train_test_split
+x_train, x_val, y_train, y_val = train_test_split(features, labels, test_size=0.2, random_state=42)
 
-model = tf.keras.Sequential([ # quantize model using TensorFlow (for C++ deployment)
-    tf.keras.layers.Dense(32, activation='relu', input_shape=(X_train.shape[1],)),
-    tf.keras.layers.Dense(16, activation='relu'),
-    tf.keras.layers.Dense(1, activation='sigmoid')
+model = tf.keras.Sequential([
+    tf.keras.layers.Input(shape=(3,)), # Input layer with 3 features
+    tf.keras.layers.Dense(16, activation='relu'), # First hidden layer with 16 units
+    tf.keras.layers.Dense(8, activation='relu'), # Second hidden layer with 8 units
+    tf.keras.layers.Dense(4, activation='relu'), # Third hidden layer with 4 units
+    tf.keras.layers.Dense(len(set(labels)), activation='softmax') # Output layer for classification
 ])
 
-model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-model.fit(X_train, y_train, epochs=5)
+model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
+              loss='sparse_categorical_crossentropy',
+              metrics=['accuracy'])
+model.fit(x_train, y_train, epochs=30, batch_size=16, validation_data=(x_val, y_val))
 
-# quantization
-quantize_model = tfmot.quantization.keras.quantize_model(model)
-quantize_model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-quantize_model.fit(X_train, y_train, epochs=5)
-quantize_model.save("quantized_model.tflite") # save quantized model
+model.save('photon_classification_model.h5')
+converter = tf.lite.TFLiteConverter.from_keras_model(model)
+converter.optimizations = [tf.lite.Optimize.DEFAULT]
+tflite_model = converter.convert()
+with open('photon_classification_model.tflite', 'wb') as f:
+    f.write(tflite_model)
