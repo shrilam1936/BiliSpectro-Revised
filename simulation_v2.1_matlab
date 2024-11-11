@@ -1,0 +1,83 @@
+% molar absorptivity values (in L·mol⁻¹·cm⁻¹)
+molarAbsorptivity = struct('B_450', 40000, 'B_510', 35000, ...
+                           'HbO2_450', 50000, 'HbO2_510', 48000, ...
+                           'Hb_450', 30000, 'Hb_510', 32000);
+
+BilirubinConcentration = linspace(5, 20, 100); % µmol/L
+HbConcentration = linspace(12, 17, 100); % g/dL
+OxygenationLevels = linspace(0, 100, 100); % % fractional saturation
+MelaninLevels = linspace(0.1, 1.0, 100); % melanin concentration
+
+TissueThicknesses = struct('epidermis', 0.0005, 'dermis', 0.0015, 'subcutaneous', 0.002); % thicknesses (in meters)
+AnisotropyFactors = struct('epidermis', 0.85, 'dermis', 0.90, 'subcutaneous', 0.95); % anisotropy factors
+ScatteringCoefficients = struct('epidermis', 50, 'dermis', 20, 'subcutaneous', 10); % scattering coefficients (in cm⁻¹) 
+AbsorptionCoefficients = struct('epidermis', 0.02, 'dermis', 0.015, 'subcutaneous', 0.01); % absorption coefficients (in cm⁻¹)
+
+% function to simulate photon scattering through tissue layers
+function [photonPaths, absorbedCount] = scatterPhotons(photonCount, anisotropyFactors, scatteringCoefficients, absorptionCoefficients, tissueThicknesses)
+    % preallocate photon paths array for unabsorbed photons
+    photonPaths = zeros(photonCount, 3); % Store final positions of photons
+    absorbedCount = 0; % Counter for absorbed photons
+
+    for i = 1:photonCount
+        % initialize photon position and direction
+        position = [0, 0, 0]; % Start at origin
+        direction = randn(1, 3); 
+        direction = direction / norm(direction); % normalize to unit vector
+        absorbed = false; % flag to check if photon is absorbed
+
+        for layer = ["epidermis", "dermis", "subcutaneous"]
+            if absorbed
+                break;
+            end
+            % Layer-specific properties
+            g = anisotropyFactors.(layer);
+            mu_s = scatteringCoefficients.(layer);
+            mu_a = absorptionCoefficients.(layer);
+            layerThickness = tissueThicknesses.(layer);
+            
+            % calculate the depth limit for this layer
+            layerDepthLimit = position(3) + layerThickness;
+            % trace photon within the layer until it exits or is absorbed
+            while position(3) < layerDepthLimit && ~absorbed
+                meanFreePath = -log(rand) / (mu_s + mu_a); % Mean free path calculation  
+                % update position based on mean free path and direction
+                position = position + meanFreePath * direction;
+                % check if photon is absorbed
+                absorptionProbability = mu_a / (mu_s + mu_a);
+                if rand < absorptionProbability
+                    absorbedCount = absorbedCount + 1;
+                    absorbed = true; % Photon is absorbed
+                    break;
+                end
+                % update direction based on Henyey-Greenstein model
+                cosTheta = (1 + g^2 - ((1 - g^2) / (1 + g * (2 * rand - 1)))^2) / (2 * g);
+                sinTheta = sqrt(1 - cosTheta^2);
+                phi = 2 * pi * rand;
+                direction = [sinTheta * cos(phi), sinTheta * sin(phi), cosTheta];
+
+                % normalize direction after scattering event (maintain vector)
+                direction = direction / norm(direction);
+            end
+        end
+
+        % Record the final position if photon is not absorbed
+        if ~absorbed
+            photonPaths(i, :) = position;
+        end
+    end
+    fprintf('Total Photons: %d, Absorbed Photons: %d\n', photonCount, absorbedCount);
+end
+
+% edit
+photonCount = 1000; % Number of photons to simulate
+[photonPaths, absorbedCount] = scatterPhotons(photonCount, AnisotropyFactors, ScatteringCoefficients, AbsorptionCoefficients, TissueThicknesses);
+
+% Display results
+figure;
+scatter3(photonPaths(:,1), photonPaths(:,2), photonPaths(:,3), 5, 'filled');
+xlabel('X position');
+ylabel('Y position');
+zlabel('Z position');
+title('Simulated Photon Scattering in Skin Layers');
+grid on;
